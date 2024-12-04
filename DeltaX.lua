@@ -22,32 +22,70 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 --]]
 
--- DeltaX / ΔX, the most cursed State Change Sync Solution System (SΔSS)
+-- DeltaX / ΔX, the most cursed Change-Sync Solution System (ΔSS)
 local Delta = {
     config = {
         syncIntervalInTicks = 20 * 5, -- The amount of ticks between syncs.
-        debug = false, -- Shows you the internal state by looking up
+        splitPacketsIntervalInTicks = 20 * 1.1, -- The amount of time between "split" packets.
+        debug = true, -- Shows you the internal state
         compress_depress_funcs = { -- fuck you im not doing compression. have this very lightweight byte shaving instead.
             compress = function(state) return toJson(state):sub(3,-2) end,
             decompress = function(state) return parseJson("{\"" .. state .. "}") end
-        }
+        },
+        splitPacketsMaxBufferSize = math.round(avatar:getMaxBufferSize()/4), -- TODO: figure out better default
+        splitPacketChunkSize = 512
     }
 }
 local _state = {}
+--- @type Buffer
+local _splitPingTMP = nil
+--- @type Buffer
+local _splitPingSendTMP = nil
 
 local DeltaInternals = {
-    __TickCounter = 1
+    __TickCounter = 1,
+    __SyncTickCounter = 1,
+    __CurrentlySplitSyncing = false
 }
 
 function DeltaInternals.__WORLD_TICK()
     if DeltaInternals.__TickCounter == Delta.config.syncIntervalInTicks then
-        local stateC = Delta.config.compress_depress_funcs.compress(_state)
-        pings.___DeltaX_SyncStructure(stateC)
-        DeltaInternals.__TickCounter = 0
+        if _splitPingSendTMP == nil then
+            local stateC = Delta.config.compress_depress_funcs.compress(_state)
+            local _tempBuffer = data:createBuffer(#stateC * 2) -- can probably just do #stateC but i dont trust my code
+            _tempBuffer:writeByteArray(stateC)
+            _tempBuffer:setPosition(0)
+            if _tempBuffer:available() <= Delta.config.splitPacketChunkSize then
+                pings.___DeltaX_SyncStructure(stateC, false)
+                DeltaInternals.__TickCounter = 0
+            else
+                -- too long for a packet according to config. begin splitting.
+                DeltaInternals.__CurrentlySplitSyncing = true
+                _splitPingSendTMP = _tempBuffer
+                pings.___DeltaX_SyncStructure("CH1" .. _splitPingSendTMP:readByteArray(Delta.config.splitPacketChunkSize-3), true)
+            end
+        else
+            if DeltaInternals.__SyncTickCounter == Delta.config.splitPacketsIntervalInTicks then
+                DeltaInternals.__SyncTickCounter = 0
+                if _splitPingSendTMP:available() == 0 then
+                    _splitPingSendTMP:close()
+                    DeltaInternals.__CurrentlySplitSyncing = false
+                    DeltaInternals.__TickCounter = 0
+                    pings.___DeltaX_SyncStructure("END", true)
+                    return
+                end
+                pings.___DeltaX_SyncStructure("sPS" .. _splitPingSendTMP:readByteArray(Delta.config.splitPacketChunkSize), true)
+            end
+        end
     end
-    DeltaInternals.__TickCounter = DeltaInternals.__TickCounter + 1
+    if not DeltaInternals.__CurrentlySplitSyncing then 
+        DeltaInternals.__TickCounter = DeltaInternals.__TickCounter + 1
+        DeltaInternals.__SyncTickCounter = 1
+    else
+        DeltaInternals.__SyncTickCounter = DeltaInternals.__SyncTickCounter + 1
+    end
 
-    if Delta.config.debug then--and host:isHost() then
+    if Delta.config.debug then
         if DeltaInternals.__DebugPanel == nil then
             local worldModel = models:newPart("___DELTAX_WORLD_PART", "WORLD")
             local text = worldModel:newText("___DELTAX_DEBUG_PANEL")
@@ -57,6 +95,7 @@ function DeltaInternals.__WORLD_TICK()
             text:backgroundColor(vec(0,0,0,1))
             text:setAlignment("CENTER")
             text:setWidth(16 * 16)
+            text:setScale(0.1,0.1,0.1)
 
             DeltaInternals.__DebugPanel = text
         end
@@ -68,8 +107,35 @@ end
 
 events.WORLD_TICK:register(DeltaInternals.__WORLD_TICK, "___DELTAX_WORLD_TICK")
 
-function pings.___DeltaX_SyncStructure(state)
-    _state = Delta.config.compress_depress_funcs.decompress(state)
+--- @param state Buffer | unknown
+--- @param split boolean | nil
+function pings.___DeltaX_SyncStructure(state, split)
+    if split ~= true then
+        _state = Delta.config.compress_depress_funcs.decompress(state)
+        return
+    end
+    
+    if _splitPingTMP == nil then
+        -- it's our very first packet received.
+        local _tBuffer = data:createBuffer(Delta.config.splitPacketChunkSize)
+        _tBuffer:writeByteArray(state)
+        if _tBuffer:readByteArray(3) == "CH1" then
+            _splitPingTMP = data:createBuffer(Delta.config.splitPacketsMaxBufferSize)
+            _splitPingTMP:setPosition(0)
+            _tBuffer:close()
+        else
+            _tBuffer:close()
+            return -- we do not have all the data. ignore this sync packet.
+        end
+    end
+    _splitPingTMP:writeByteArray(state:readByteArray(Delta.config.splitPacketChunkSize))
+    state:setPosition(0)
+    if state:readByteArray(3) == "END" then
+        state:close()
+        _splitPingTMP:setPosition(0)
+        local finalPacket = _splitPingTMP:readByteArray(Delta.config.splitPacketsMaxBufferSize)
+        _state = Delta.config.compress_depress_funcs.decompress(finalPacket)
+    end
 end
 
 function pings.___DeltaX_SyncVar(key, value, parentKey)
@@ -121,94 +187,5 @@ function Delta.MkSubDelta(deltaKey)
         end
     }
 end
-
--- load = function(self)
---     -- some things shouldn't be saved.
---     self:set("AFK", false, false)
---     self:set("Name", self.Name, false)
---     self:set("OverrideName", "", false)
---     self:set("NameColor", self.NameColor, false)
---     local _vars = player:getVariable()
---     for key, value in pairs(_vars) do
---         if self[key] ~= nil and key:sub(1,1) ~= "_" then
---             self[key] = value
---         else
---             self["__UNKNOWN_" .. key] = value
---         end
---     end
--- end,
--- set = function(self, x, y, ping, MV)
---     if ping == nil then
---         ping = true
---     end
---     if MV == nil then
---         self[x] = y
---     else
---         if self["ModuleVariables"][MV] == nil then
---             self["ModuleVariables"][MV] = {}
---         end
---         self["ModuleVariables"][MV][x] = y
---     end
---     if ping then
---         pings.NA_Variables__SetKeyVal(x,y, MV)
---     end
--- end,
--- MkGlobalSet = function(self, moduleKey)
---     local func = function(key, value, ping)
---         return self:set(key, value, ping, moduleKey)
---     end
---     return func
--- end
-
-
--- local tickstamp = 0
--- function events.WORLD_TICK()
---     if tickstamp == 20 * 15 then
---         tickstamp = 0
---         pings.NA_Variables__SyncEntireStructure(Minify(Globals))
---     else
---         tickstamp = tickstamp + 1
---     end
--- end
-
--- function pings.NA_Variables__SyncEntireStructure(table)
---     table = DecompressTable(table)
---     for key, value in pairs(table) do
---         Globals[key] = value
---     end
--- end
-
--- function Minify(table)
---     local finalTable = {}
---     for key, value in pairs(table) do
---         local syncThisValue = true
---         if key:sub(1,1) == "_" then
---             syncThisValue = false
---             -- break
---         end
---         for index, protectedKey in ipairs(Globals.Protected) do
---             if protectedKey == key then
---                 syncThisValue = false
---                 -- break
---             end
---         end
---         if syncThisValue then
---             finalTable[key] = value
---         end
---     end
---     finalTable = CompressTable(finalTable)
---     return finalTable
--- end
-
--- function CompressTable(table)
---     return table -- TODO: table compression
--- end
--- function DecompressTable(table)
---     return table -- TODO: table compression
--- end
-
--- function pings.NA_Variables__SetKeyVal(key, value, MV)
---     Globals:set(key, value, false, MV)
--- end
 
 return Delta
