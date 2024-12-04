@@ -25,7 +25,7 @@ SOFTWARE.
 -- DeltaX / ΔX, the most cursed Change-Sync Solution System (ΔSS)
 local Delta = {
     config = {
-        syncIntervalInTicks = 20 * 5, -- The amount of ticks between syncs.
+        syncIntervalInTicks = 20 * 15, -- The amount of ticks between syncs.
         splitPacketsIntervalInTicks = 20 * 1.1, -- The amount of time between "split" packets.
         debug = true, -- Shows you the internal state
         compress_depress_funcs = { -- fuck you im not doing compression. have this very lightweight byte shaving instead.
