@@ -26,13 +26,14 @@ SOFTWARE.
 local Delta = {
     config = {
         syncIntervalInTicks = 20 * 5, -- The amount of ticks between syncs.
-        debug = true -- Shows you the internal state by looking up
+        debug = false, -- Shows you the internal state by looking up
+        compress_depress_funcs = { -- fuck you im not doing compression. have this very lightweight byte shaving instead.
+            compress = function(state) return toJson(state):sub(3,-2) end,
+            decompress = function(state) return parseJson("{\"" .. state .. "}") end
+        }
     }
 }
 local _state = {}
-
-local _recordedShorthandsA2B = {}
-local _recordedShorthandsB2A = {}
 
 local DeltaInternals = {
     __TickCounter = 1
@@ -40,7 +41,7 @@ local DeltaInternals = {
 
 function DeltaInternals.__WORLD_TICK()
     if DeltaInternals.__TickCounter == Delta.config.syncIntervalInTicks then
-        local stateC = DeltaInternals.__COMPRESS_STATE(_state)
+        local stateC = Delta.config.compress_depress_funcs.compress(_state)
         pings.___DeltaX_SyncStructure(stateC)
         DeltaInternals.__TickCounter = 0
     end
@@ -60,49 +61,18 @@ function DeltaInternals.__WORLD_TICK()
             DeltaInternals.__DebugPanel = text
         end
 
-        DeltaInternals.__DebugPanel:setText(toJson(DeltaInternals.__COMPRESS_STATE(_state)))
+        DeltaInternals.__DebugPanel:setText(toJson(_state))
 
     end
 end
 
 events.WORLD_TICK:register(DeltaInternals.__WORLD_TICK, "___DELTAX_WORLD_TICK")
 
-function DeltaInternals.__COMPRESS_STATE(state)
-    local newState = {}
-    for key, value in pairs(state) do
-        print(key, value)
-        newState[_recordedShorthandsA2B[key]] = value
-    end
-    return newState
-end
-
-function DeltaInternals.__DECOMPRESS_STATE(stateC)
-    local newState = {}
-    for key, value in pairs(stateC) do
-        newState[_recordedShorthandsB2A[key]] = value
-    end
-    return newState
-end
-
----@param key string
-function DeltaInternals.__ENSURE_SHORTHAND_EXISTS(key)
-    if _recordedShorthandsA2B[key] == nil then
-        local newKey = key:gsub("%l", "")
-        _recordedShorthandsA2B[key] = newKey
-        _recordedShorthandsB2A[newKey] = key
-    else
-        if key ~= _recordedShorthandsB2A[_recordedShorthandsA2B[key]] then
-            error("[DeltaX] Error! Non-unique compression key for variable " .. key .. " and " .. _recordedShorthandsB2A[_recordedShorthandsA2B[key]] .. "!")
-        end
-    end
-end
-    
 function pings.___DeltaX_SyncStructure(state)
-    _state = state
+    _state = Delta.config.compress_depress_funcs.decompress(state)
 end
 
 function pings.___DeltaX_SyncVar(key, value, parentKey)
-    DeltaInternals.__ENSURE_SHORTHAND_EXISTS(key)
     if parentKey ~= nil then
         if _state[parentKey] == nil then
             _state[parentKey] = {}
@@ -124,12 +94,32 @@ end
 ---@param ping boolean # Whether or not to propagate the change immediately. Note that all changes are eventually synced. This is just to prevent ping spam in constantly-called functions.
 ---Note that the key should be unique when you strip all lowercase characters. This is for compression purposes.
 function Delta.Write(key, value, ping)
-    DeltaInternals.__ENSURE_SHORTHAND_EXISTS(key)
+    if ping == nil then ping = true end
     if ping == true then
         pings.___DeltaX_SyncVar(key, value)
     else
         _state[key] = value
     end
+end
+
+---Makes a subkey in the state.
+---@param deltaKey string
+---@return { Read: fun(key: string), Write: fun(key: stringlib, value: any, ping: boolean): nil }
+function Delta.MkSubDelta(deltaKey)
+    if _state[deltaKey] == nil then _state[deltaKey] = {} end
+    return {
+        Read = function(key)
+            return _state[deltaKey][key]
+        end,
+        Write = function(key, value, ping)
+            if ping == nil then ping = true end
+            if ping == true then
+                pings.___DeltaX_SyncVar(key, value, deltaKey)
+            else
+                _state[deltaKey][key] = value
+            end
+        end
+    }
 end
 
 -- load = function(self)

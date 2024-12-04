@@ -4,12 +4,15 @@ models.model:setPrimaryRenderType("END_PORTAL")
 nameplate.ENTITY:setText("${badges} Test Avatar")
 
 local Delta = require("DeltaX")
+require("script_somemodule")
 
 function events.WORLD_TICK()
-    local time = ""
-    local _time = client:getDate()
-    time = tostring(_time.hour) .. tostring(_time.minute) .. tostring(_time.second)
-    Delta.Write("Time", time, false)
+    if host:isHost() then
+        local time = ""
+        local _time = client:getDate()
+        time = tostring(_time.hour) .. tostring(_time.minute) .. tostring(_time.second)
+        Delta.Write("Time", time, false)
+    end
 end
 
 function events.CHAR_TYPED(char)
