@@ -29,8 +29,8 @@ local Delta = {
         splitPacketsIntervalInTicks = 20 * 1.1, -- The amount of time between "split" packets.
         debug = true, -- Shows you the internal state
         compress_depress_funcs = { -- fuck you im not doing compression. have this very lightweight byte shaving instead.
-            compress = function(state) return toJson(state):sub(3,-2) end,
-            decompress = function(state) return parseJson("{\"" .. state .. "}") end
+            compress = function(state) return toJson(state):sub(2,-2) end,
+            decompress = function(state) return parseJson("{" .. state .. "}") end
         },
         splitPacketsMaxBufferSize = math.round(avatar:getMaxBufferSize()/4), -- TODO: figure out better default
         splitPacketChunkSize = 512
@@ -170,7 +170,7 @@ end
 
 ---Makes a subkey in the state.
 ---@param deltaKey string
----@return { Read: fun(key: string), Write: fun(key: stringlib, value: any, ping: boolean): nil }
+---@return { Read: fun(key: string), Write: fun(key: string, value: any, ping: boolean): nil }
 function Delta.MkSubDelta(deltaKey)
     if _state[deltaKey] == nil then _state[deltaKey] = {} end
     return {
