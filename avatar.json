@@ -1,0 +1,12 @@
+{
+  "$schema": ".vscode/avatar.schema.json",
+  "name": "DeltaX Labs",
+  "description": "Test avatar for the DeltaX Library",
+  "authors": [
+    "Captain8771"
+  ],
+  "color": "#ff2400",
+  "autoScripts": [
+    "script"
+  ]
+}
