@@ -77,6 +77,25 @@ Delta.config.splitPacketChunkSize = 512
 
 ```
 
+## Events
+DeltaX has a miniature events system, so you can run code both before and after stuff syncs, and even cancel syncs too!
+
+```lua
+--- @type Cancel: boolean
+--- true if the sync should be cancelled.
+
+Delta.events.DispatchEvent(eventName) -- returns bool for if it should cancel. i don't see why you'd call this yourself though.
+
+function Delta.events.beforeSyncStructure(state): Cancel?
+function afterSyncStructure(state): nil
+function beforeSyncValue(key, value): Cancel?
+function afterSyncValue(key, value): nil
+
+-- Note: You can register multiple handlers for the same event! Just declare the function again!
+-- Note 2: Cancellable events will only require ONE of the handlers to return true for it to cancel.
+
+```
+
 ## Contact
 If something breaks, behaves weirdly, or you think a feature fits for DeltaX, or just want to say hi, feel free to reach out via one of the following mediums:
 - Discord (`niko.oneshot.real`)

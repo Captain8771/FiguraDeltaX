@@ -23,8 +23,20 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 --]]
 
--- DeltaX / ΔX, the most cursed Change Sync System (ΔSS)
+--- @alias compress_depress_funcs { compress: fun(state): any; decompress: fun(state): any }
+
+--- DeltaX / ΔX, the most cursed Change Sync System (ΔSS)
+--- @class DeltaX
+--- @field events { beforeSyncStructure: fun(state): boolean?; afterSyncStructure: fun(state): nil; beforeSyncValue: fun(key, value): boolean?; afterSyncValue: fun(key, value): nil }
+--- @field __DeltaInternals__TOUCH_AT_YOUR_OWN_RISK any
 local Delta = {
+    --- @class DeltaXConfig
+    --- @field syncIntervalInTicks number
+    --- @field splitPacketsIntervalInTicks number
+    --- @field debug boolean
+    --- @field compress_depress_funcs compress_depress_funcs
+    --- @field splitPacketsMaxBufferSize number
+    --- @field splitPacketsChunkSize number
     config = {
         syncIntervalInTicks = 20 * 15, -- The amount of ticks between syncs.
         splitPacketsIntervalInTicks = 20 * 1.1, -- The amount of time between "split" packets.
@@ -35,8 +47,41 @@ local Delta = {
         },
         splitPacketsMaxBufferSize = math.round(avatar:getMaxBufferSize()/4), -- TODO: figure out better default
         splitPacketChunkSize = 512
-    }
+    },
+    --- @class DeltaXEvents
+    --- @field DispatchEvent fun(event, ...): boolean?
+    --- @field beforeSyncStructure fun(state): boolean?
+    --- @field afterSyncStructure fun(state): nil
+    --- @field beforeSyncValue fun(key, value): boolean?
+    --- @field afterSyncValue fun(key, value): nil
+    events = setmetatable({
+        DispatchEvent = function(event, ...) 
+            -- lua why must you pain me this way.
+            local _dInternals = ___DELTA_GLOBAL_VARIABLE___.__DeltaInternals__TOUCH_AT_YOUR_OWN_RISK
+            if _dInternals.__EventHandlers[event] == nil then
+                error("[DeltaX] Unrecognized event \"" .. event .. "\"!")
+            end
+            local shouldCancel = false
+            for index, func in ipairs(_dInternals.__EventHandlers[event]) do
+                local ret = func(...)
+                if ret == true then
+                    shouldCancel = true
+                end
+            end
+            return shouldCancel
+        end
+    }, {
+        __newindex = function(t,k,v)
+            local _dInternals = ___DELTA_GLOBAL_VARIABLE___.__DeltaInternals__TOUCH_AT_YOUR_OWN_RISK
+            if _dInternals.__EventHandlers[k] ~= nil and type(v) == "function" then
+                table.insert(_dInternals.__EventHandlers[k], v)
+            end
+        end
+    }),
+    __DeltaInternals__TOUCH_AT_YOUR_OWN_RISK = nil
 }
+___DELTA_GLOBAL_VARIABLE___ = Delta
+
 local _state = {}
 --- @type Buffer
 local _splitPingTMP = nil
@@ -46,11 +91,24 @@ local _splitPingSendTMP = nil
 local DeltaInternals = {
     __TickCounter = 1,
     __SyncTickCounter = 1,
-    __CurrentlySplitSyncing = false
+    __CurrentlySplitSyncing = false,
+    __EventHandlers = {
+        beforeSyncStructure = {},
+        afterSyncStructure = {},
+        beforeSyncValue = {},
+        afterSyncValue = {}
+    }
 }
+
+Delta.__DeltaInternals__TOUCH_AT_YOUR_OWN_RISK = DeltaInternals
 
 function DeltaInternals.__WORLD_TICK()
     if DeltaInternals.__TickCounter == Delta.config.syncIntervalInTicks then
+        local cancel = Delta.events.DispatchEvent("beforeSyncStructure", _state)
+        if cancel then
+            DeltaInternals.__TickCounter = 0
+            return
+        end
         if _splitPingSendTMP == nil then
             local stateC = Delta.config.compress_depress_funcs.compress(_state)
             local _tempBuffer = data:createBuffer(#stateC * 2) -- can probably just do #stateC but i dont trust my code
@@ -113,6 +171,7 @@ events.WORLD_TICK:register(DeltaInternals.__WORLD_TICK, "___DELTAX_WORLD_TICK")
 function pings.___DeltaX_SyncStructure(state, split)
     if split ~= true then
         _state = Delta.config.compress_depress_funcs.decompress(state)
+        Delta.events.DispatchEvent("afterSyncStructure", _state)
         return
     end
     
@@ -136,7 +195,8 @@ function pings.___DeltaX_SyncStructure(state, split)
         _splitPingTMP:setPosition(0)
         local finalPacket = _splitPingTMP:readByteArray(Delta.config.splitPacketsMaxBufferSize)
         _state = Delta.config.compress_depress_funcs.decompress(finalPacket)
-    end
+        Delta.events.DispatchEvent("afterSyncStructure", _state)
+        end
 end
 
 function pings.___DeltaX_SyncVar(key, value, parentKey)
@@ -145,8 +205,10 @@ function pings.___DeltaX_SyncVar(key, value, parentKey)
             _state[parentKey] = {}
         end
         _state[parentKey][key] = value
+        Delta.events.DispatchEvent("afterSyncValue", parentKey .. "." .. key, value)
     else
         _state[key] = value
+        Delta.events.DispatchEvent("afterSyncValue", key, value)
     end
 end
 
@@ -161,12 +223,18 @@ end
 ---@param ping boolean # Whether or not to propagate the change immediately. Note that all changes are eventually synced. This is just to prevent ping spam in constantly-called functions.
 ---Note that the key should be unique when you strip all lowercase characters. This is for compression purposes.
 function Delta.Write(key, value, ping)
+    
     if ping == nil then ping = true end
     if ping == true then
+        local cancel = Delta.events.DispatchEvent("beforeSyncValue", key, value)
+        if cancel == true then
+            return
+        end
         pings.___DeltaX_SyncVar(key, value)
     else
         _state[key] = value
     end
+    
 end
 
 ---Makes a subkey in the state.
@@ -181,6 +249,10 @@ function Delta.MkSubDelta(deltaKey)
         Write = function(key, value, ping)
             if ping == nil then ping = true end
             if ping == true then
+                local cancel = Delta.events.DispatchEvent("beforeSyncValue", deltaKey .. "." .. key, value)
+                if cancel == true then
+                    return
+                end
                 pings.___DeltaX_SyncVar(key, value, deltaKey)
             else
                 _state[deltaKey][key] = value
