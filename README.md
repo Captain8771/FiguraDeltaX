@@ -82,9 +82,8 @@ If something breaks, behaves weirdly, or you think a feature fits for DeltaX, or
 - Discord (`niko.oneshot.real`)
 - Github Issues
 - Pinging me in the figura assets-browser thread for this library
-Just make sure to include the first line of your local copy of DeltaX.lua if you're reporting a bug. 
 
-It should look something like this: 
+Just make sure to include the first line of your local copy of DeltaX.lua if you're reporting a bug. It should look something like this: 
 
 ```lua
 -- Δ = ...
