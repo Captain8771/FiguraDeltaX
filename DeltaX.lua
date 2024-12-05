@@ -1,3 +1,4 @@
+-- Δ = 1.0
 --[[
 MIT License
 
@@ -22,7 +23,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 --]]
 
--- DeltaX / ΔX, the most cursed Change-Sync Solution System (ΔSS)
+-- DeltaX / ΔX, the most cursed Change Sync System (ΔSS)
 local Delta = {
     config = {
         syncIntervalInTicks = 20 * 15, -- The amount of ticks between syncs.
